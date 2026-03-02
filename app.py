@@ -23,7 +23,7 @@ SECONDARY_COLOR = ("#018786", "#03DAC6")
 ERROR_COLOR = ("#B00020", "#CF6679")
 TEXT_COLOR = ("#000000", "#FFFFFF")
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "0.9.0"
 GITHUB_REPO = "SkylordryanZ/EPFSelfContributionCalculator"
 
 class App(ctk.CTk):
@@ -59,17 +59,14 @@ class App(ctk.CTk):
         
         self.dividend_btn = ctk.CTkButton(self.sidebar_frame, text="EPF Dividend", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_dividend_frame)
         self.dividend_btn.grid(row=3, column=0, padx=20, pady=10)
-        
-        self.appearance_mode_label = ctk.CTkLabel(self.sidebar_frame, text="Appearance Mode:", anchor="w", text_color=TEXT_COLOR)
-        self.appearance_mode_label.grid(row=7, column=0, padx=20, pady=(10, 0))
-        self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["Dark", "Light", "System"],
-                                                                       command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=8, column=0, padx=20, pady=(10, 20))
+        self.settings_btn = ctk.CTkButton(self.sidebar_frame, text="Settings", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_settings_frame)
+        self.settings_btn.grid(row=4, column=0, padx=20, pady=10)
 
         # create main frame areas
         self.add_record_frame = AddRecordFrame(self, self.user_data, self.update_data_callback)
         self.history_frame = HistoryFrame(self, self.user_data, self.update_data_callback)
         self.dividend_frame = DividendFrame(self, self.user_data)
+        self.settings_frame = SettingsFrame(self)
         
         # Initialize default view
         self.show_add_record_frame()
@@ -94,7 +91,7 @@ class App(ctk.CTk):
             print(f"Update check failed: {e}")
 
     def update_sidebar_buttons(self, active_button):
-        for btn in [self.add_record_btn, self.view_history_btn, self.dividend_btn]:
+        for btn in [self.add_record_btn, self.view_history_btn, self.dividend_btn, self.settings_btn]:
             if btn == active_button:
                 btn.configure(fg_color=PRIMARY_COLOR, text_color=BG_COLOR, hover_color=PRIMARY_HOVER)
             else:
@@ -106,6 +103,17 @@ class App(ctk.CTk):
         # Re-draw charts with new colors
         self.add_record_frame.draw_pie_chart_last()
         self.history_frame.draw_bar_chart(self.user_data)
+        
+    def change_color_theme_event(self, new_theme: str):
+        # Changing color themes in CTK dynamically is limited, usually requires restart
+        # But we will apply it for new widgets and inform the user
+        ctk.set_default_color_theme(new_theme.lower())
+        messagebox.showinfo("Theme Changed", f"Color theme set to {new_theme}.\nPlease restart the app for full effect.")
+
+    def change_scaling_event(self, new_scaling: str):
+        new_scaling_float = int(new_scaling.replace("%", "")) / 100
+        ctk.set_widget_scaling(new_scaling_float)
+        ctk.set_window_scaling(new_scaling_float)
 
 
     def update_data_callback(self, new_data):
@@ -118,6 +126,7 @@ class App(ctk.CTk):
         self.add_record_frame.grid_forget()
         self.history_frame.grid_forget()
         self.dividend_frame.grid_forget()
+        self.settings_frame.grid_forget()
 
     def show_add_record_frame(self):
         self.hide_all_frames()
@@ -135,6 +144,11 @@ class App(ctk.CTk):
         self.dividend_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
         self.dividend_frame.refresh_data(self.user_data)
         self.update_sidebar_buttons(self.dividend_btn)
+
+    def show_settings_frame(self):
+        self.hide_all_frames()
+        self.settings_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.update_sidebar_buttons(self.settings_btn)
 
 
 # ==========================================================
@@ -485,6 +499,56 @@ class DividendFrame(ctk.CTkFrame):
         
         self.lbl_contributions.configure(text=f"Documented Total EPF for {selected_year}: RM {total_epf_year:,.2f}")
         self.lbl_dividend.configure(text=f"Estimated Dividend ({rate}%): RM {dividend:,.2f}")
+
+class SettingsFrame(ctk.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master, corner_radius=15, fg_color=SURFACE_COLOR)
+        
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        
+        self.title_label = ctk.CTkLabel(self, text="Settings & Customization", font=ctk.CTkFont(size=24, weight="bold"), text_color=TEXT_COLOR)
+        self.title_label.grid(row=0, column=0, columnspan=2, padx=20, pady=(20, 20), sticky="w")
+        
+        # Appearance Options
+        self.appearance_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.appearance_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+        
+        self.app_title = ctk.CTkLabel(self.appearance_frame, text="Appearance", font=ctk.CTkFont(size=18, weight="bold"), text_color=TEXT_COLOR)
+        self.app_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        
+        self.mode_label = ctk.CTkLabel(self.appearance_frame, text="Theme Mode:", text_color=TEXT_COLOR)
+        self.mode_label.grid(row=1, column=0, sticky="w", pady=5)
+        self.mode_menu = ctk.CTkOptionMenu(self.appearance_frame, values=["Dark", "Light", "System"], command=self.master.change_appearance_mode_event)
+        self.mode_menu.grid(row=1, column=1, sticky="w", padx=10, pady=5)
+        self.mode_menu.set(ctk.get_appearance_mode())
+        
+        self.color_label = ctk.CTkLabel(self.appearance_frame, text="Color Theme:", text_color=TEXT_COLOR)
+        self.color_label.grid(row=2, column=0, sticky="w", pady=5)
+        self.color_menu = ctk.CTkOptionMenu(self.appearance_frame, values=["Blue", "Green", "Dark-Blue"], command=self.master.change_color_theme_event)
+        self.color_menu.grid(row=2, column=1, sticky="w", padx=10, pady=5)
+        
+        self.scale_label = ctk.CTkLabel(self.appearance_frame, text="UI Scaling:", text_color=TEXT_COLOR)
+        self.scale_label.grid(row=3, column=0, sticky="w", pady=5)
+        self.scale_menu = ctk.CTkOptionMenu(self.appearance_frame, values=["80%", "90%", "100%", "110%", "120%"], command=self.master.change_scaling_event)
+        self.scale_menu.grid(row=3, column=1, sticky="w", padx=10, pady=5)
+        self.scale_menu.set("100%")
+        
+        # About & Updates
+        self.about_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.about_frame.grid(row=1, column=1, sticky="nsew", padx=20, pady=10)
+        
+        self.about_title = ctk.CTkLabel(self.about_frame, text="About & Updates", font=ctk.CTkFont(size=18, weight="bold"), text_color=TEXT_COLOR)
+        self.about_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        
+        self.version_label = ctk.CTkLabel(self.about_frame, text=f"Current Version: v{APP_VERSION}", text_color=TEXT_COLOR)
+        self.version_label.grid(row=1, column=0, sticky="w", pady=5)
+        
+        self.update_btn = ctk.CTkButton(self.about_frame, text="Check for Updates", fg_color=PRIMARY_COLOR, hover_color=PRIMARY_HOVER, command=self.master.run_update_check)
+        self.update_btn.grid(row=2, column=0, sticky="w", pady=10)
+        
+        self.author_label = ctk.CTkLabel(self.about_frame, text="Created by: SkylordryanZ (MIT License)", text_color="gray", font=ctk.CTkFont(size=12))
+        self.author_label.grid(row=3, column=0, sticky="w", pady=(20,0))
 
 if __name__ == "__main__":
     app = App()
