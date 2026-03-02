@@ -1,0 +1,26 @@
+{
+    "2026": {
+        "January": {
+            "total_received": 3392.0,
+            "basic_salary": 3001.769911504425,
+            "employer_epf": 390,
+            "employee_epf": 330,
+            "total_epf": 720,
+            "net_salary": 2672.0,
+            "saving_percentage": 50.0,
+            "saving_amount": 1336.0,
+            "remaining_balance": 1336.0
+        },
+        "Feb": {
+            "total_received": 3710.0,
+            "basic_salary": 3283.185840707965,
+            "employer_epf": 427,
+            "employee_epf": 361,
+            "total_epf": 788,
+            "net_salary": 2922.0,
+            "saving_percentage": 50.0,
+            "saving_amount": 1461.0,
+            "remaining_balance": 1461.0
+        }
+    }
+}
