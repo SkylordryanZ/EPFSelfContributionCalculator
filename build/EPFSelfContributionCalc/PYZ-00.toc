@@ -1,5 +1,4 @@
-("C:\\Users\\leeju\\Desktop\\SkylordryanZ\\Documents\\Github\\Ryan's Income "
- 'Calculator\\build\\EPFSelfContributionCalc\\PYZ-00.pyz',
+('C:\\Users\\leeju\\Desktop\\SkylordryanZ\\Documents\\Github\\EPFSelfContributionCalculator\\build\\EPFSelfContributionCalc\\PYZ-00.pyz',
  [('PIL',
    'C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PIL\\__init__.py',
    'PYMODULE'),
@@ -412,8 +411,7 @@
    'C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\bz2.py',
    'PYMODULE'),
   ('calculator',
-   "C:\\Users\\leeju\\Desktop\\SkylordryanZ\\Documents\\Github\\Ryan's Income "
-   'Calculator\\calculator.py',
+   'C:\\Users\\leeju\\Desktop\\SkylordryanZ\\Documents\\Github\\EPFSelfContributionCalculator\\calculator.py',
    'PYMODULE'),
   ('calendar',
    'C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\calendar.py',

@@ -4,6 +4,9 @@ from datetime import datetime
 import threading
 import urllib.request
 import json
+import sys
+import csv
+import os
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -42,6 +45,9 @@ class App(ctk.CTk):
         # configure grid layout (1x2)
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
+        
+        # Handle the window close event to ensure a clean exit
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # create sidebar frame with navigation buttons
         self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0, fg_color=SURFACE_COLOR)
@@ -72,9 +78,13 @@ class App(ctk.CTk):
         self.show_add_record_frame()
         
         # Check for updates in the background
-        threading.Thread(target=self.run_update_check, daemon=True).start()
+        threading.Thread(target=self.run_update_check, args=(False,), daemon=True).start()
 
-    def run_update_check(self):
+    def run_update_check(self, is_manual=False):
+        if is_manual and hasattr(self, 'settings_frame'):
+            self.settings_frame.update_btn.configure(text="Checking...", state="disabled")
+            self.update_idletasks()
+            
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -82,13 +92,91 @@ class App(ctk.CTk):
                 data = json.loads(response.read().decode())
                 latest_version = data.get("tag_name", "").lstrip("v")
                 current_version = APP_VERSION.lstrip("v")
+                
+                # Check if we should update
                 if latest_version and latest_version != current_version:
-                    msg = (f"A new version (v{latest_version}) is available!\n\n"
-                           f"You are currently running v{current_version}.\n"
-                           f"Please visit https://github.com/{GITHUB_REPO}/releases to download the latest update.")
-                    self.after(2000, lambda: messagebox.showinfo("Update Available", msg))
+                    # Look for an .exe asset in the release
+                    download_url = None
+                    for asset in data.get("assets", []):
+                        if asset.get("name", "").endswith(".exe"):
+                            download_url = asset.get("browser_download_url")
+                            break
+                            
+                    if download_url:
+                        # Automatically download and install
+                        if is_manual:
+                            self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+                            
+                        # Show a quick toast or message before it hangs to download
+                        self.after(500, lambda: messagebox.showinfo("Update Available", f"A new version (v{latest_version}) was found and is downloading automatically.\nThe app will restart shortly."))
+                        threading.Thread(target=self.execute_update, args=(download_url,), daemon=True).start()
+                    else:
+                        # Fallback if no .exe is attached to the release
+                        msg = (f"A new version (v{latest_version}) is available!\n\n"
+                               f"Please visit https://github.com/{GITHUB_REPO}/releases to download it.")
+                        if is_manual:
+                            self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+                        self.after(500, lambda: messagebox.showinfo("Update Available", msg))
+                        
+                elif is_manual:
+                    self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+                    self.after(500, lambda: messagebox.showinfo("Up to Date", f"You are already running the latest version (v{current_version})."))
+                    
         except Exception as e:
             print(f"Update check failed: {e}")
+            if is_manual:
+                self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+                self.after(500, lambda: messagebox.showerror("Update Error", f"Failed to check for updates.\n{e}"))
+
+    def execute_update(self, download_url):
+        if hasattr(self, 'settings_frame'):
+            self.settings_frame.update_btn.configure(text="Downloading...", state="disabled")
+            
+        try:
+            new_exe_name = "EPFSelfContributionCalc_update.exe"
+            urllib.request.urlretrieve(download_url, new_exe_name)
+            
+            # Generate and run the updater batch script
+            self.generate_update_script(new_exe_name)
+            
+        except Exception as e:
+            msg = f"Failed to download update.\n{e}"
+            self.after(500, lambda: messagebox.showerror("Download Error", msg))
+            if hasattr(self, 'settings_frame'):
+                self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+
+    def generate_update_script(self, new_exe_name):
+        current_exe = sys.executable
+        # If running as a python script, don't try to replace python.exe
+        if not current_exe.endswith(".exe") or "python" in current_exe.lower():
+            messagebox.showinfo("Update Downloaded", f"Update downloaded as {new_exe_name}. Since you are running from source, please swap the files manually.")
+            return
+
+        current_exe_name = os.path.basename(current_exe)
+        current_dir = os.path.dirname(current_exe)
+        bat_path = os.path.join(current_dir, "update_app.bat")
+        
+        # Batch script to wait, swap files, restart, and delete itself
+        bat_content = f"""@echo off
+echo Updating EPF Self-Contribution Calculator...
+timeout /t 2 /nobreak > NUL
+del "{current_exe_name}"
+rename "{new_exe_name}" "{current_exe_name}"
+start "" "{current_exe_name}"
+del "%~f0"
+"""
+        with open(bat_path, "w") as f:
+            f.write(bat_content)
+            
+        # Launch script and kill app natively
+        os.startfile(bat_path)
+        self.after(100, self.on_closing)
+
+    def on_closing(self):
+        """Called when the user clicks the X button to close the app."""
+        self.quit()      # Stops the mainloop
+        self.destroy()   # Destroys the UI
+        sys.exit(0)      # Ensures all background python processes and threads are terminated
 
     def update_sidebar_buttons(self, active_button):
         for btn in [self.add_record_btn, self.view_history_btn, self.dividend_btn, self.settings_btn]:
@@ -336,6 +424,42 @@ class HistoryFrame(ctk.CTkFrame):
         self.table_scroll.grid_columnconfigure((0, 1, 2, 3, 4, 5, 6, 7, 8), weight=1)
         self.data_rows = []
         
+        self.export_btn = ctk.CTkButton(self, text="Export to Excel (CSV)", fg_color=SECONDARY_COLOR, text_color=("#FFFFFF", "#121212"), hover_color=PRIMARY_HOVER, corner_radius=8, command=self.export_to_csv)
+        self.export_btn.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="e")
+        
+    def export_to_csv(self):
+        if not self.master.user_data:
+            messagebox.showinfo("Export", "No data available to export.")
+            return
+            
+        filename = f"EPF_History_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        try:
+            with open(filename, mode='w', newline='') as file:
+                writer = csv.writer(file)
+                # Write Header
+                writer.writerow(["Year", "Month", "Total Received (RM)", "Basic Salary (RM)", "Employer EPF (RM)", "Employee EPF (RM)", "Total EPF (RM)", "Net Salary (RM)", "Savings (RM)", "Remaining (RM)"])
+                
+                # Write Data
+                months_order = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                for year in sorted(self.master.user_data.keys(), reverse=True):
+                    sorted_months = sorted(self.master.user_data[year].keys(), key=lambda m: months_order.index(m) if m in months_order else 99)
+                    for month in sorted_months:
+                        d = self.master.user_data[year][month]
+                        writer.writerow([
+                            year, month,
+                            f"{d.get('total_received', 0):.2f}",
+                            f"{d.get('basic_salary', 0):.2f}",
+                            f"{d.get('employer_epf', 0):.2f}",
+                            f"{d.get('employee_epf', 0):.2f}",
+                            f"{d.get('total_epf', 0):.2f}",
+                            f"{d.get('net_salary', 0):.2f}",
+                            f"{d.get('saving_amount', 0):.2f}",
+                            f"{d.get('remaining_balance', 0):.2f}"
+                        ])
+            messagebox.showinfo("Export Success", f"Data successfully exported to:\n{os.path.abspath(filename)}")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export data:\n{e}")
+        
     def draw_bar_chart(self, data):
         if self.canvas: self.canvas.get_tk_widget().destroy()
         if not data: return
@@ -544,7 +668,7 @@ class SettingsFrame(ctk.CTkFrame):
         self.version_label = ctk.CTkLabel(self.about_frame, text=f"Current Version: v{APP_VERSION}", text_color=TEXT_COLOR)
         self.version_label.grid(row=1, column=0, sticky="w", pady=5)
         
-        self.update_btn = ctk.CTkButton(self.about_frame, text="Check for Updates", fg_color=PRIMARY_COLOR, hover_color=PRIMARY_HOVER, command=self.master.run_update_check)
+        self.update_btn = ctk.CTkButton(self.about_frame, text="Check for Updates", fg_color=PRIMARY_COLOR, hover_color=PRIMARY_HOVER, command=lambda: threading.Thread(target=self.master.run_update_check, args=(True,), daemon=True).start())
         self.update_btn.grid(row=2, column=0, sticky="w", pady=10)
         
         self.author_label = ctk.CTkLabel(self.about_frame, text="Created by: SkylordryanZ (MIT License)", text_color="gray", font=ctk.CTkFont(size=12))
