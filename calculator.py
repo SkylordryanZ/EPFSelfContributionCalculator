@@ -1,8 +1,23 @@
 import json
 import os
+import shutil
 from datetime import datetime
 
-DATA_FILE = "data.json"
+# Setup AppData directory structure
+appdata_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
+app_dir = os.path.join(appdata_dir, 'SingularityZ', 'EPFSelfContributionCalculator')
+os.makedirs(app_dir, exist_ok=True)
+
+DATA_FILE = os.path.join(app_dir, "data.json")
+
+# Migrate existing data.json from current directory if it exists and new one doesn't
+old_data_file = "data.json"
+if os.path.exists(old_data_file) and not os.path.exists(DATA_FILE):
+    try:
+        shutil.copy(old_data_file, DATA_FILE)
+        print(f"Migrated existing data to {DATA_FILE}")
+    except Exception as e:
+        print(f"Failed to migrate old data: {e}")
 
 def load_data():
     if not os.path.exists(DATA_FILE):
