@@ -26,7 +26,7 @@ SECONDARY_COLOR = ("#018786", "#03DAC6")
 ERROR_COLOR = ("#B00020", "#CF6679")
 TEXT_COLOR = ("#000000", "#FFFFFF")
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "1.0.3"
 GITHUB_REPO = "SkylordryanZ/EPFSelfContributionCalculator"
 
 class App(ctk.CTk):
@@ -68,6 +68,9 @@ class App(ctk.CTk):
         self.settings_btn = ctk.CTkButton(self.sidebar_frame, text="Settings", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_settings_frame)
         self.settings_btn.grid(row=4, column=0, padx=20, pady=10)
 
+        # Hidden by default until an update is downloaded
+        self.restart_update_btn = ctk.CTkButton(self.sidebar_frame, text="↻ Restart to Update", fg_color=SECONDARY_COLOR, hover_color=SECONDARY_COLOR[0], text_color=TEXT_COLOR, command=self.apply_update)
+
         # create main frame areas
         self.add_record_frame = AddRecordFrame(self, self.user_data, self.update_data_callback)
         self.history_frame = HistoryFrame(self, self.user_data, self.update_data_callback)
@@ -105,10 +108,8 @@ class App(ctk.CTk):
                     if download_url:
                         # Automatically download and install
                         if is_manual:
-                            self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+                            self.after(500, lambda: messagebox.showinfo("Update Available", f"A new version (v{latest_version}) was found and is downloading in the background."))
                             
-                        # Show a quick toast or message before it hangs to download
-                        self.after(500, lambda: messagebox.showinfo("Update Available", f"A new version (v{latest_version}) was found and is downloading automatically.\nThe app will restart shortly."))
                         threading.Thread(target=self.execute_update, args=(download_url,), daemon=True).start()
                     else:
                         # Fallback if no .exe is attached to the release
@@ -133,17 +134,26 @@ class App(ctk.CTk):
             self.settings_frame.update_btn.configure(text="Downloading...", state="disabled")
             
         try:
-            new_exe_name = "EPFSelfContributionCalc_update.exe"
-            urllib.request.urlretrieve(download_url, new_exe_name)
+            self.new_exe_name = "EPFSelfContributionCalc_update.exe"
+            urllib.request.urlretrieve(download_url, self.new_exe_name)
             
-            # Generate and run the updater batch script
-            self.generate_update_script(new_exe_name)
+            # Show restart button on sidebar once download is complete
+            self.after(0, self.show_restart_button)
             
         except Exception as e:
             msg = f"Failed to download update.\n{e}"
             self.after(500, lambda: messagebox.showerror("Download Error", msg))
             if hasattr(self, 'settings_frame'):
                 self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
+
+    def show_restart_button(self):
+        self.restart_update_btn.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="s")
+        if hasattr(self, 'settings_frame'):
+            self.settings_frame.update_btn.configure(text="Update Ready! Restart to Apply", state="normal", fg_color=SECONDARY_COLOR, hover_color=SECONDARY_COLOR[0], command=self.apply_update)
+
+    def apply_update(self):
+        if hasattr(self, 'new_exe_name'):
+            self.generate_update_script(self.new_exe_name)
 
     def generate_update_script(self, new_exe_name):
         current_exe = sys.executable
