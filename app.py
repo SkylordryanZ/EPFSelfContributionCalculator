@@ -26,7 +26,7 @@ SECONDARY_COLOR = ("#018786", "#03DAC6")
 ERROR_COLOR = ("#B00020", "#CF6679")
 TEXT_COLOR = ("#000000", "#FFFFFF")
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 GITHUB_REPO = "SkylordryanZ/EPFSelfContributionCalculator"
 
 class App(ctk.CTk):

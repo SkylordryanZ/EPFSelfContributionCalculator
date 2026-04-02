@@ -4,7 +4,7 @@
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=[('C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.14-64\\vcruntime140.dll', '.'), ('C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.14-64\\vcruntime140_1.dll', '.')],
+    binaries=[('C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.12-64\\vcruntime140.dll', '.'), ('C:\\Users\\leeju\\AppData\\Local\\Python\\pythoncore-3.12-64\\vcruntime140_1.dll', '.')],
     datas=[],
     hiddenimports=[],
     hookspath=[],
