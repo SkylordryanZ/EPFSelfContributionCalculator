@@ -9,6 +9,20 @@ app_dir = os.path.join(appdata_dir, 'SingularityZ', 'EPFSelfContributionCalculat
 os.makedirs(app_dir, exist_ok=True)
 
 DATA_FILE = os.path.join(app_dir, "data.json")
+RECEIPTS_DIR = os.path.join(app_dir, "receipts")
+os.makedirs(RECEIPTS_DIR, exist_ok=True)
+
+def get_relief_categories():
+    """Returns standard Malaysia tax relief categories."""
+    return [
+        "Lifestyle (Books/Tech/Gym/Internet)",
+        "Medical (Self/Spouse/Child/Parents)",
+        "Education (Self)",
+        "Sports Equipment & Facilities",
+        "Parental Care",
+        "Life Insurance & EPF (Additional)",
+        "Other Reliefs"
+    ]
 
 # Migrate existing data.json from current directory if it exists and new one doesn't
 old_data_file = "data.json"
@@ -41,6 +55,46 @@ def calculate_epf(total_received):
     total_epf = employer_epf + employee_epf
     net_salary = total_received - total_epf
     return base_salary, employer_epf, employee_epf, net_salary, total_epf
+
+def get_tax_brackets_2025():
+    """Returns the tax brackets for Malaysia YA 2025."""
+    return [
+        (5000, 0.0),
+        (15000, 0.01),
+        (15000, 0.03),
+        (15000, 0.06),
+        (20000, 0.11),
+        (30000, 0.19),
+        (300000, 0.25),
+        (200000, 0.26),
+        (1400000, 0.28),
+        (float('inf'), 0.30)
+    ]
+
+def calculate_tax_2025(chargeable_income):
+    """Calculates tax based on Malaysia YA 2025 rates and RM 400 rebate."""
+    if chargeable_income <= 0:
+        return 0.0, 0.0
+    
+    original_ci = chargeable_income
+    tax = 0.0
+    brackets = get_tax_brackets_2025()
+    
+    remaining_income = chargeable_income
+    for limit, rate in brackets:
+        taxable_in_bracket = min(remaining_income, limit)
+        tax += taxable_in_bracket * rate
+        remaining_income -= taxable_in_bracket
+        if remaining_income <= 0:
+            break
+            
+    # Apply RM 400 rebate if CI <= 35,000
+    rebate = 0.0
+    if original_ci <= 35000:
+        rebate = 400.0
+        tax = max(0, tax - rebate)
+        
+    return tax, rebate
 
 def input_data(data):
     try:

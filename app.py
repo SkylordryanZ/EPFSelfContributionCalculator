@@ -7,11 +7,14 @@ import json
 import sys
 import csv
 import os
+import shutil
+import uuid
+import subprocess
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from calculator import calculate_epf, load_data, save_data
+from calculator import calculate_epf, load_data, save_data, calculate_tax_2025, get_relief_categories, RECEIPTS_DIR
 
 # Set appearance mode and default color theme
 ctk.set_appearance_mode("Dark")
@@ -26,7 +29,7 @@ SECONDARY_COLOR = ("#018786", "#03DAC6")
 ERROR_COLOR = ("#B00020", "#CF6679")
 TEXT_COLOR = ("#000000", "#FFFFFF")
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 GITHUB_REPO = "SkylordryanZ/EPFSelfContributionCalculator"
 
 class App(ctk.CTk):
@@ -67,6 +70,12 @@ class App(ctk.CTk):
         self.dividend_btn.grid(row=3, column=0, padx=20, pady=10)
         self.settings_btn = ctk.CTkButton(self.sidebar_frame, text="Settings", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_settings_frame)
         self.settings_btn.grid(row=4, column=0, padx=20, pady=10)
+        
+        self.tax_btn = ctk.CTkButton(self.sidebar_frame, text="Tax Calculation", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_tax_frame)
+        self.tax_btn.grid(row=5, column=0, padx=20, pady=10)
+        
+        self.receipt_btn = ctk.CTkButton(self.sidebar_frame, text="Receipt Manager", fg_color="transparent", hover_color=SURFACE_COLOR, text_color=PRIMARY_COLOR, command=self.show_receipt_frame)
+        self.receipt_btn.grid(row=6, column=0, padx=20, pady=10)
 
         # Hidden by default until an update is downloaded
         self.restart_update_btn = ctk.CTkButton(self.sidebar_frame, text="↻ Restart to Update", fg_color=SECONDARY_COLOR, hover_color=SECONDARY_COLOR[0], text_color=TEXT_COLOR, command=self.apply_update)
@@ -76,6 +85,8 @@ class App(ctk.CTk):
         self.history_frame = HistoryFrame(self, self.user_data, self.update_data_callback)
         self.dividend_frame = DividendFrame(self, self.user_data)
         self.settings_frame = SettingsFrame(self)
+        self.tax_frame = TaxFrame(self, self.user_data)
+        self.receipt_frame = ReceiptFrame(self, self.user_data, self.update_data_callback)
         
         # Initialize default view
         self.show_add_record_frame()
@@ -147,7 +158,7 @@ class App(ctk.CTk):
                 self.settings_frame.update_btn.configure(text="Check for Updates", state="normal")
 
     def show_restart_button(self):
-        self.restart_update_btn.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="s")
+        self.restart_update_btn.grid(row=7, column=0, padx=20, pady=(10, 20), sticky="s")
         if hasattr(self, 'settings_frame'):
             self.settings_frame.update_btn.configure(text="Update Ready! Restart to Apply", state="normal", fg_color=SECONDARY_COLOR, hover_color=SECONDARY_COLOR[0], command=self.apply_update)
 
@@ -189,7 +200,7 @@ del "%~f0"
         sys.exit(0)      # Ensures all background python processes and threads are terminated
 
     def update_sidebar_buttons(self, active_button):
-        for btn in [self.add_record_btn, self.view_history_btn, self.dividend_btn, self.settings_btn]:
+        for btn in [self.add_record_btn, self.view_history_btn, self.dividend_btn, self.tax_btn, self.receipt_btn, self.settings_btn]:
             if btn == active_button:
                 btn.configure(fg_color=PRIMARY_COLOR, text_color=BG_COLOR, hover_color=PRIMARY_HOVER)
             else:
@@ -225,6 +236,8 @@ del "%~f0"
         self.history_frame.grid_forget()
         self.dividend_frame.grid_forget()
         self.settings_frame.grid_forget()
+        self.tax_frame.grid_forget()
+        self.receipt_frame.grid_forget()
 
     def show_add_record_frame(self):
         self.hide_all_frames()
@@ -247,6 +260,18 @@ del "%~f0"
         self.hide_all_frames()
         self.settings_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
         self.update_sidebar_buttons(self.settings_btn)
+
+    def show_tax_frame(self):
+        self.hide_all_frames()
+        self.tax_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.tax_frame.refresh_data(self.user_data)
+        self.update_sidebar_buttons(self.tax_btn)
+
+    def show_receipt_frame(self):
+        self.hide_all_frames()
+        self.receipt_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.receipt_frame.refresh_data(self.user_data)
+        self.update_sidebar_buttons(self.receipt_btn)
 
 
 # ==========================================================
@@ -683,6 +708,336 @@ class SettingsFrame(ctk.CTkFrame):
         
         self.author_label = ctk.CTkLabel(self.about_frame, text="Created by: SkylordryanZ (MIT License)", text_color="gray", font=ctk.CTkFont(size=12))
         self.author_label.grid(row=3, column=0, sticky="w", pady=(20,0))
+
+class TaxFrame(ctk.CTkFrame):
+    def __init__(self, master, current_data):
+        super().__init__(master, corner_radius=15, fg_color=SURFACE_COLOR)
+        self.current_data = current_data
+        
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(3, weight=1)
+        
+        # Title
+        self.title_label = ctk.CTkLabel(self, text="End of Year Tax Calculation (YA 2025)", font=ctk.CTkFont(size=24, weight="bold"), text_color=TEXT_COLOR)
+        self.title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        
+        self.info_label = ctk.CTkLabel(self, text="Estimate your tax liability based on actual records and future forecasts.", font=ctk.CTkFont(size=14), text_color="gray")
+        self.info_label.grid(row=1, column=0, padx=20, sticky="w")
+        
+        # Controls Frame (Year Selection)
+        self.controls_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.controls_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=20)
+        
+        self.year_label = ctk.CTkLabel(self.controls_frame, text="Select Year:", font=ctk.CTkFont(weight="bold"), text_color=TEXT_COLOR)
+        self.year_label.grid(row=0, column=0, padx=(0,10), pady=10, sticky="e")
+        
+        self.year_menu = ctk.CTkOptionMenu(self.controls_frame, values=["No Data"], command=self.update_view, corner_radius=8, fg_color=BG_COLOR, text_color=TEXT_COLOR)
+        self.year_menu.grid(row=0, column=1, padx=10, pady=10)
+        
+        # Comparison Frame (Actual vs Forecast)
+        self.comparison_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.comparison_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.comparison_frame.grid_columnconfigure(0, weight=1)
+        self.comparison_frame.grid_columnconfigure(1, weight=1)
+        
+        # Actual Column
+        self.actual_card = self.create_tax_card(self.comparison_frame, "Year-to-Date (Actual)", 0)
+        
+        # Forecast Column
+        self.forecast_card = self.create_tax_card(self.comparison_frame, "Year-End (Forecast)", 1)
+
+    def create_tax_card(self, parent, title, column):
+        card = ctk.CTkFrame(parent, corner_radius=15, fg_color=BG_COLOR)
+        card.grid(row=0, column=column, sticky="nsew", padx=10, pady=10)
+        card.grid_columnconfigure(0, weight=1)
+        
+        lbl_title = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=18, weight="bold"), text_color=PRIMARY_COLOR)
+        lbl_title.pack(pady=15)
+        
+        data_frame = ctk.CTkFrame(card, fg_color="transparent")
+        data_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        fields = [
+            ("Total Basic Salary", "RM 0.00"),
+            ("EPF Relief (Employee)", "RM 0.00"),
+            ("Individual Relief", "RM 9,000.00"),
+            ("Chargeable Income", "RM 0.00"),
+            ("Adjusted Tax (After Rebate)", "RM 0.00")
+        ]
+        
+        labels = {}
+        for field, default in fields:
+            row = ctk.CTkFrame(data_frame, fg_color="transparent")
+            row.pack(fill="x", pady=5)
+            
+            f_lbl = ctk.CTkLabel(row, text=f"{field}:", text_color="gray", font=ctk.CTkFont(size=12))
+            f_lbl.pack(side="left")
+            
+            v_lbl = ctk.CTkLabel(row, text=default, text_color=TEXT_COLOR, font=ctk.CTkFont(size=13, weight="normal"))
+            v_lbl.pack(side="right")
+            labels[field] = v_lbl
+            
+        return labels
+
+    def refresh_data(self, data):
+        self.current_data = data
+        if data:
+            years = sorted(list(data.keys()), reverse=True)
+            self.year_menu.configure(values=years)
+            self.year_menu.set(years[0])
+            self.update_view()
+        else:
+            self.year_menu.configure(values=["No Data"])
+            self.year_menu.set("No Data")
+
+    def update_view(self, *args):
+        selected_year = self.year_menu.get()
+        if selected_year not in self.current_data:
+            return
+            
+        year_records = self.current_data[selected_year]
+        months_recorded = len(year_records)
+        
+        # Calculate Actuals
+        actual_basic = sum([d.get('basic_salary', 0) for d in year_records.values()])
+        actual_ee_epf = sum([d.get('employee_epf', 0) for d in year_records.values()])
+        
+        self.update_card_labels(self.actual_card, actual_basic, actual_ee_epf)
+        
+        # Calculate Forecast
+        # Average per month * 12
+        avg_basic = actual_basic / months_recorded
+        avg_ee_epf = actual_ee_epf / months_recorded
+        
+        forecast_basic = avg_basic * 12
+        forecast_ee_epf = avg_ee_epf * 12
+        
+        self.update_card_labels(self.forecast_card, forecast_basic, forecast_ee_epf)
+
+    def update_card_labels(self, labels, basic, epf):
+        # Reliefs
+        individual_relief = 9000.0
+        epf_relief = min(4000.0, epf) # Capped at 4000
+        
+        chargeable_income = max(0, basic - individual_relief - epf_relief)
+        tax, rebate = calculate_tax_2025(chargeable_income)
+        
+        labels["Total Basic Salary"].configure(text=f"RM {basic:,.2f}")
+        labels["EPF Relief (Employee)"].configure(text=f"RM {epf_relief:,.2f}")
+        labels["Chargeable Income"].configure(text=f"RM {chargeable_income:,.2f}")
+        
+        tax_color = SECONDARY_COLOR if tax > 0 else "gray"
+        tax_color = SECONDARY_COLOR if tax > 0 else "gray"
+        labels["Adjusted Tax (After Rebate)"].configure(text=f"RM {tax:,.2f}", text_color=tax_color, font=ctk.CTkFont(size=14, weight="bold"))
+
+class ReceiptFrame(ctk.CTkFrame):
+    def __init__(self, master, current_data, save_callback):
+        super().__init__(master, corner_radius=15, fg_color=SURFACE_COLOR)
+        self.current_data = current_data
+        self.save_callback = save_callback
+        
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+        
+        # Title
+        self.title_label = ctk.CTkLabel(self, text="Receipt Manager", font=ctk.CTkFont(size=24, weight="bold"), text_color=TEXT_COLOR)
+        self.title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        
+        # Upper section: Upload Form
+        self.form_frame = ctk.CTkFrame(self, fg_color=BG_COLOR, corner_radius=15)
+        self.form_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+        self.form_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        
+        # --- Form Fields ---
+        # File Selection
+        self.file_path = None
+        self.file_btn = ctk.CTkButton(self.form_frame, text="Select Receipt (PDF/Img)", command=self.select_file, fg_color=PRIMARY_COLOR, hover_color=PRIMARY_HOVER)
+        self.file_btn.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        self.file_label = ctk.CTkLabel(self.form_frame, text="No file selected", text_color="gray", font=ctk.CTkFont(size=11))
+        self.file_label.grid(row=1, column=0, padx=15, pady=(0, 15))
+        
+        # Category
+        ctk.CTkLabel(self.form_frame, text="Category:", font=ctk.CTkFont(weight="bold")).grid(row=0, column=1, padx=15, pady=(15, 0), sticky="w")
+        self.cat_menu = ctk.CTkOptionMenu(self.form_frame, values=get_relief_categories(), width=250)
+        self.cat_menu.grid(row=1, column=1, padx=15, pady=(0, 15), sticky="ew")
+        
+        # Amount & Description
+        input_subframe = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        input_subframe.grid(row=0, column=2, rowspan=2, padx=15, pady=15, sticky="nsew")
+        
+        self.amount_entry = ctk.CTkEntry(input_subframe, placeholder_text="Amount (RM)")
+        self.amount_entry.pack(fill="x", pady=5)
+        
+        self.desc_entry = ctk.CTkEntry(input_subframe, placeholder_text="Description (e.g. New Shoes)")
+        self.desc_entry.pack(fill="x", pady=5)
+        
+        self.save_btn = ctk.CTkButton(self.form_frame, text="Save Receipt", command=self.save_receipt, fg_color=SECONDARY_COLOR, text_color=("#FFFFFF", "#121212"), hover_color=PRIMARY_HOVER)
+        self.save_btn.grid(row=2, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="ew")
+
+        # Lower section: List of Receipts
+        self.list_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.list_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=10)
+        self.list_frame.grid_columnconfigure(0, weight=1)
+        self.list_frame.grid_rowconfigure(1, weight=1)
+        
+        ctk.CTkLabel(self.list_frame, text="Saved Receipts", font=ctk.CTkFont(size=18, weight="bold")).grid(row=0, column=0, sticky="w", pady=(0, 10))
+        
+        self.scroll_frame = ctk.CTkScrollableFrame(self.list_frame, fg_color=BG_COLOR, corner_radius=10)
+        self.scroll_frame.grid(row=1, column=0, sticky="nsew")
+        self.scroll_frame.grid_columnconfigure((0, 1, 2, 3), weight=2)
+        self.scroll_frame.grid_columnconfigure(4, weight=1) # Actions
+        
+        self.receipt_rows = []
+
+    def select_file(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(title="Select Receipt", 
+                                          filetypes=[("Image/PDF files", "*.jpg *.jpeg *.png *.pdf"), ("All files", "*.*")])
+        if path:
+            self.file_path = path
+            self.file_label.configure(text=os.path.basename(path), text_color=TEXT_COLOR)
+
+    def save_receipt(self):
+        if not self.file_path:
+            from tkinter import messagebox
+            messagebox.showerror("Error", "Please select a file first.")
+            return
+            
+        try:
+            amount = float(self.amount_entry.get())
+        except ValueError:
+            from tkinter import messagebox
+            messagebox.showerror("Error", "Please enter a valid amount.")
+            return
+            
+        category = self.cat_menu.get()
+        desc = self.desc_entry.get().strip() or "No description"
+        
+        # 1. Copy file to RECEIPTS_DIR with unique name
+        ext = os.path.splitext(self.file_path)[1]
+        unique_name = f"{uuid.uuid4()}{ext}"
+        dest_path = os.path.join(RECEIPTS_DIR, unique_name)
+        
+        try:
+            shutil.copy(self.file_path, dest_path)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to save file: {e}")
+            return
+            
+        # 2. Update data
+        if "receipts" not in self.current_data:
+            self.current_data["receipts"] = []
+            
+        receipt_entry = {
+            "id": str(uuid.uuid4()),
+            "file_name": unique_name,
+            "original_name": os.path.basename(self.file_path),
+            "category": category,
+            "amount": amount,
+            "description": desc,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        self.current_data["receipts"].append(receipt_entry)
+        self.save_callback(self.current_data)
+        
+        # 3. Reset Form
+        self.file_path = None
+        self.file_label.configure(text="No file selected", text_color="gray")
+        self.amount_entry.delete(0, 'end')
+        self.desc_entry.delete(0, 'end')
+        
+        self.refresh_data(self.current_data)
+        from tkinter import messagebox
+        messagebox.showinfo("Success", "Receipt saved successfully!")
+
+    def refresh_data(self, data):
+        self.current_data = data
+        for widget in self.receipt_rows:
+            widget.destroy()
+        self.receipt_rows.clear()
+        
+        if "receipts" not in data or not data["receipts"]:
+            lbl = ctk.CTkLabel(self.scroll_frame, text="No receipts found.", font=ctk.CTkFont(size=14), text_color="gray")
+            lbl.grid(row=0, column=0, columnspan=5, pady=20)
+            self.receipt_rows.append(lbl)
+            return
+
+        # Headers
+        headers = ["Date", "Category", "Amount", "Description", "Actions"]
+        for i, h in enumerate(headers):
+            lbl = ctk.CTkLabel(self.scroll_frame, text=h, font=ctk.CTkFont(weight="bold"))
+            lbl.grid(row=0, column=i, padx=5, pady=5, sticky="ew")
+            self.receipt_rows.append(lbl)
+            
+        # Rows
+        for idx, r in enumerate(reversed(data["receipts"])):
+            row_idx = idx + 1
+            
+            # Date (shortened)
+            d_lbl = ctk.CTkLabel(self.scroll_frame, text=r['date'][:10], font=ctk.CTkFont(size=11))
+            d_lbl.grid(row=row_idx, column=0, padx=5, pady=2)
+            self.receipt_rows.append(d_lbl)
+            
+            # Category
+            c_lbl = ctk.CTkLabel(self.scroll_frame, text=r['category'].split(' ')[0], font=ctk.CTkFont(size=11))
+            c_lbl.grid(row=row_idx, column=1, padx=5, pady=2)
+            self.receipt_rows.append(c_lbl)
+            
+            # Amount
+            a_lbl = ctk.CTkLabel(self.scroll_frame, text=f"RM {r['amount']:.2f}", font=ctk.CTkFont(size=11, weight="bold"))
+            a_lbl.grid(row=row_idx, column=2, padx=5, pady=2)
+            self.receipt_rows.append(a_lbl)
+            
+            # Description
+            desc_text = r['description']
+            if len(desc_text) > 20: desc_text = desc_text[:17] + "..."
+            desc_lbl = ctk.CTkLabel(self.scroll_frame, text=desc_text, font=ctk.CTkFont(size=11))
+            desc_lbl.grid(row=row_idx, column=3, padx=5, pady=2)
+            self.receipt_rows.append(desc_lbl)
+            
+            # Actions
+            action_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
+            action_frame.grid(row=row_idx, column=4, padx=5, pady=2)
+            self.receipt_rows.append(action_frame)
+            
+            open_btn = ctk.CTkButton(action_frame, text="👁", width=30, height=24, command=lambda fname=r['file_name']: self.open_file(fname))
+            open_btn.pack(side="left", padx=2)
+            
+            del_btn = ctk.CTkButton(action_frame, text="🗑", width=30, height=24, fg_color=ERROR_COLOR, hover_color="#b65060", command=lambda rid=r['id']: self.delete_receipt(rid))
+            del_btn.pack(side="left", padx=2)
+
+    def open_file(self, file_name):
+        path = os.path.join(RECEIPTS_DIR, file_name)
+        if os.path.exists(path):
+            try:
+                if os.name == 'nt': # Windows
+                    os.startfile(path)
+                elif os.name == 'posix': # macOS/Linux
+                    subprocess.run(['open' if sys.platform == 'darwin' else 'xdg-open', path])
+            except Exception as e:
+                from tkinter import messagebox
+                messagebox.showerror("Error", f"Could not open file: {e}")
+        else:
+            from tkinter import messagebox
+            messagebox.showerror("Error", "File not found.")
+
+    def delete_receipt(self, receipt_id):
+        from tkinter import messagebox
+        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this receipt?"):
+            receipt = next((r for r in self.current_data["receipts"] if r["id"] == receipt_id), None)
+            if receipt:
+                # Delete file
+                path = os.path.join(RECEIPTS_DIR, receipt["file_name"])
+                if os.path.exists(path):
+                    try: os.remove(path)
+                    except: pass
+                
+                # Update data
+                self.current_data["receipts"] = [r for r in self.current_data["receipts"] if r["id"] != receipt_id]
+                self.save_callback(self.current_data)
+                self.refresh_data(self.current_data)
 
 if __name__ == "__main__":
     app = App()
